@@ -7,7 +7,6 @@ POMP_WD=${POMP_WD:="$(pwd)/migrations"}
 
 function exec_help {
   echo "Usage: pomp [-d <path>] <command> [<args>]"
-  echo "Version: <$VERSION>"
 
   cat << HERE_EOF
 
@@ -171,3 +170,4 @@ case "$CMD" in
   init-pomp) create_pomp_tables && "$@" && exit ;;
   *) echo "$NAME: illegal command -- $CMD" 1>&2; exec_help 1>&2; exit 1 ;;
 esac
+
