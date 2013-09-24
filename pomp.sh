@@ -3,7 +3,6 @@
 
 set -e
 NAME=$0
-VERSION=0.1.0
 POMP_WD=${POMP_WD:="$(pwd)/migrations"}
 
 function exec_help {
@@ -40,10 +39,10 @@ function exec_new {
 
 # run      Executes pending migrations
 function exec_run {
-  [ $# -gt 0 ] && { run_sql_files "$@"; exit 0; }
+  [ $# -gt 0 ] && { FORCE=1 run_sql_files "$@"; exit 0; }
   local IFS=$'\n'
   VERSION=$(get_version)
-  FILE_NAMES=($(wd_names | awk -F'[^0-9]' -v V="$VERSION" -v D="$POMP_WD" '{ if($1>V) print D"/"$0 }'))
+  FILE_NAMES=($(wd_names | awk -F'[^0-9]' -v V="$VERSION" -v D="$POMP_WD" '{ if($1>V) print D"/"$0 }' | sort))
   run_sql_files "${FILE_NAMES[@]}" || exit 8
   echo "All done!"
   exit 0
@@ -77,12 +76,14 @@ function exec_verify {
   fi
 
   ## All local files older than the database version should exist in the database
-  OLD_LOCAL_VERSIONS=($(wd_names | to_number | awk "{ if (\$1<=$VERSION) print \$1 }"))
+  OLD_LOCAL_VERSIONS=($(wd_names | to_number | awk -v V="$VERSION" '{ if ($1<=V) print $1 }'))
+
   PG_ARRAY=$(IFS=','; (echo "${OLD_LOCAL_VERSIONS[*]}"))
   DIFF_VERSIONS=$(sql --quiet -tv locals="'{$PG_ARRAY}'" << HERE_DOC
     SELECT unnest(:locals::bigint[]) AS v INTO TEMP TABLE _local;
     SELECT v FROM _local WHERE V NOT IN (SELECT version FROM pomp.versions);
-HERE_DOC)
+HERE_DOC
+)
   
   if [ "$DIFF_VERSIONS" != "" ]
   then
@@ -100,11 +101,11 @@ HERE_DOC)
 }
 
 function get_version {
-  sql -tc "SELECT COALESCE(MAX(version), 0) AS version FROM pomp.versions" | sed -e "s/ //g"
+  sql -tc "SELECT COALESCE(MAX(version), 0) FROM pomp.versions" | sed -e "s/[^0-9]*//g"
 }
 
 function sql { psql --single-transaction -xv ON_ERROR_STOP=1 "$@"; }
-function wd_names { find "$POMP_WD" -name *.sql -type f | awk -F'/' '{ print $NF }'; }
+function wd_names { find "$POMP_WD" -name "*.sql" -type f | awk -F'/' '{ print $NF }'; }
 function to_number { awk -F'/' '{ print $NF }' | awk -F'[^0-9]' '{ print $1 }'; }
 function err { echo -e "\033[31m*\033[0m $@" >&2; }
 
@@ -132,7 +133,10 @@ function run_sql_files {
       echo 'DO LANGUAGE 'plpgsql' $$'
       echo 'BEGIN'
       echo "-- POMP -- VERSION $NR"
-      echo "INSERT INTO pomp.versions SELECT $NR;"
+
+      echo "INSERT INTO pomp.versions SELECT $NR"
+      [ ! $FORCE == "" ] && echo "WHERE NOT EXISTS(SELECT 1 FROM pomp.versions WHERE version = $NR)"
+      echo ";"
       cat "$FN"
       echo 'END$$;'
     )"
