@@ -3,9 +3,9 @@
 
 set -e
 NAME=$0
-POMP_WD=${POMP_WD:="$(pwd)/migrations"}
+POMP_WD=${POMP_WD:="$(pwd)"}
 
-function exec_help {
+exec_help() {
   echo "Usage: pomp [-d <path>] <command> [<args>]"
 
   cat << HERE_EOF
@@ -28,7 +28,7 @@ HERE_EOF
 }
 
 # new      Open a new migration with supplied name
-function exec_new {
+exec_new() {
   mkdir -p "$POMP_WD" && cd "$POMP_WD"
   TIMESTAMP=$(date +"%Y%m%d%H%M%S")
   NAME=$(echo "$@" | sed -e 's/[^a-zA-Z0-9]/-/g')
@@ -37,7 +37,7 @@ function exec_new {
 }
 
 # run      Executes pending migrations
-function exec_run {
+exec_run() {
   [ $# -gt 0 ] && { FORCE=1 run_sql_files "$@"; exit 0; }
   local IFS=$'\n'
   VERSION=$(get_version)
@@ -47,7 +47,7 @@ function exec_run {
   exit 0
 }
 
-function exec_skip {
+exec_skip() {
   for V in $@
   do
     SKIP=$(echo $V | to_number | sed -e "s/'/''/g" -e 's/\\/\\\\/g')
@@ -57,7 +57,7 @@ function exec_skip {
 }
 
 # verify   Detect invalid migration files
-function exec_verify {
+exec_verify() {
   create_pomp_tables
 
   ## File version numbers should be unique
@@ -99,16 +99,16 @@ HERE_DOC
   fi
 }
 
-function get_version {
+get_version() {
   sql -tc "SELECT COALESCE(MAX(version), 0) FROM pomp.versions" | sed -e "s/[^0-9]*//g"
 }
 
-function sql { psql --single-transaction -xv ON_ERROR_STOP=1 "$@"; }
-function wd_names { find "$POMP_WD" -name "*.sql" -type f | awk -F'/' '{ print $NF }'; }
-function to_number { awk -F'/' '{ print $NF }' | awk -F'[^0-9]' '{ print $1 }'; }
-function err { echo -e "\033[31m*\033[0m $@" >&2; }
+sql() { psql --single-transaction -xv ON_ERROR_STOP=1 "$@"; }
+wd_names() { find "$POMP_WD" -name "*.sql" -type f | awk -F'/' '{ print $NF }'; }
+to_number() { awk -F'/' '{ print $NF }' | awk -F'[^0-9]' '{ print $1 }'; }
+err() { echo -e "\033[31m*\033[0m $@" >&2; }
 
-function create_pomp_tables {
+create_pomp_tables() {
   sql 1>/dev/null <<_DOC
   SET client_min_messages TO WARNING;
   CREATE SCHEMA IF NOT EXISTS pomp;
@@ -123,7 +123,7 @@ function create_pomp_tables {
 _DOC
 }
 
-function run_sql_files {
+run_sql_files() {
   for FN in "$@"
   do
     export NR="$(echo "$FN" | to_number)"
