@@ -1,6 +1,6 @@
 {
   "name": "pomp",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "type": "module",
   "repository": {
     "type": "git",
@@ -11,6 +11,6 @@
   },
   "license": "BSD",
   "dependencies": {
-    "pg": "^8.16.0"
+    "postgres": "^3.4.7"
   }
 }

@@ -3,7 +3,7 @@
 import { spawnSync } from 'node:child_process'
 import { readdir, mkdir, readFile } from 'node:fs/promises';
 import { resolve, extname, basename } from 'node:path';
-import { Client } from 'pg';
+import pg from 'postgres';
 
 const EDITOR = process.env.EDITOR || 'vi';
 const WD = process.env.POMP_WD || './migrations';
@@ -27,18 +27,16 @@ async function newOperation(args) {
 }
 
 async function runQuery(text) {
-    const client = new Client({
-        connectionString: process.env.POSTGRES_URL
-    });
-    await client.connect();
+    const client = pg(process.env.POSTGRES_URL);
     try {
-        //console.error(text);
-        return await client.query(text);
+        const result = await client.unsafe(text);
+        return result;
     } catch(ex) {
         if (!ex.routine) throw ex;
         console.error(`${ex.severity} ${ex.code}: ${ex.message}`);
+        if (ex.where) console.error(`\n${ex.where}`);
+        if (ex.hint) console.error(`\n${ex.hint}`);
         console.error('');
-        console.error(ex.where);
         process.exit(2);
     } finally {
         await client.end();
@@ -61,7 +59,7 @@ async function ensurePompTables() {
 async function listRemoteMigrations() {
     await ensurePompTables();
     const result = await runQuery('select version from pomp.versions order by version');
-    return result.rows.map(r => Number(r.version));
+    return result.map(r => Number(r.version));
 }
 
 async function listLocalMigrations() {
@@ -105,7 +103,7 @@ async function pendingMigrations() {
             j += 1;
             continue;
         } else if (local[i][0] > remote[j]) {
-            console.error(`Warning - migration ${remote[j]} not found locally`);
+            console.error(`Warning - remote migration ${remote[j]} not found locally`);
             j += 1;
             continue;
         } else {
