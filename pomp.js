@@ -119,8 +119,7 @@ async function pendingMigrations() {
 async function runMigration(number, fileName) {
     const fileData = await readFile(fileName, 'utf-8');
     const query = `DO LANGUAGE 'plpgsql' $$BEGIN
-${fileData}
-;
+${fileData.trim().replace(/;$/, '')};
 END$$
     `;
     await runQuery(query);
