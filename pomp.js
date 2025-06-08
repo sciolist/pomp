@@ -36,7 +36,7 @@ async function runQuery(text) {
         return await client.query(text);
     } catch(ex) {
         if (!ex.routine) throw ex;
-        console.error(`${ex.severity}: ${ex.code} ${ex.message}`);
+        console.error(`${ex.severity} ${ex.code}: ${ex.message}`);
         console.error('');
         console.error(ex.where);
         process.exit(2);
@@ -120,6 +120,7 @@ async function runMigration(number, fileName) {
     const fileData = await readFile(fileName, 'utf-8');
     const query = `DO LANGUAGE 'plpgsql' $$BEGIN
 ${fileData}
+;
 END$$
     `;
     await runQuery(query);
