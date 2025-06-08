@@ -1,12 +1,13 @@
 {
   "name": "pomp",
-  "version": "0.2.0",
+  "version": "0.2.1",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "https://github.com/sciolist/pomp.git"
   },
   "bin": {
-    "pomp": "pomp.mjs"
+    "pomp": "pomp.js"
   },
   "license": "BSD",
   "dependencies": {

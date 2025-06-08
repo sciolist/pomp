@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { spawnSync } from 'node:child_process'
 import { readdir, mkdir, readFile } from 'node:fs/promises';
 import { resolve, extname, basename } from 'node:path';
