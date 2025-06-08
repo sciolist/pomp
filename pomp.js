@@ -65,8 +65,16 @@ async function listRemoteMigrations() {
 }
 
 async function listLocalMigrations() {
+    let files = [];
     const versions = [];
-    const files = await readdir(WD);
+    try {
+        files = await readdir(WD);
+    } catch(ex) {
+        if (ex.code === 'ENOENT') {
+            return files;
+        }
+        throw ex;
+    }
     for (const file of files) {
         if (extname(file) !== '.sql') continue;
         const name = basename(file, '.sql');
