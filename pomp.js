@@ -3,10 +3,33 @@
 import { spawnSync } from 'node:child_process'
 import { readdir, mkdir, readFile } from 'node:fs/promises';
 import { resolve, extname, basename } from 'node:path';
+import { Pomp } from './index.js';
 import pg from 'postgres';
 
 const EDITOR = process.env.EDITOR || 'vi';
 const WD = process.env.POMP_WD || './migrations';
+
+async function runSqlQuery(text) {
+    const client = pg(process.env.POSTGRES_URL);
+    try {
+        const result = await client.unsafe(text);
+        return result;
+    } catch (ex) {
+        if (!ex.routine) throw ex;
+        console.error(`${ex.severity} ${ex.code}: ${ex.message}`);
+        if (ex.where) console.error(`\n${ex.where}`);
+        if (ex.hint) console.error(`\n${ex.hint}`);
+        console.error('');
+        process.exit(2);
+    } finally {
+        await client.end();
+    }
+}
+
+const pomp = new Pomp({
+    runSqlQuery,
+    listLocalMigrations
+});
 
 async function newOperation(args) {
   await mkdir(WD, { recursive: true });
@@ -26,42 +49,6 @@ async function newOperation(args) {
   spawnSync(EDITOR, [fullpath], { stdio: 'inherit' });
 }
 
-async function runQuery(text) {
-    const client = pg(process.env.POSTGRES_URL);
-    try {
-        const result = await client.unsafe(text);
-        return result;
-    } catch(ex) {
-        if (!ex.routine) throw ex;
-        console.error(`${ex.severity} ${ex.code}: ${ex.message}`);
-        if (ex.where) console.error(`\n${ex.where}`);
-        if (ex.hint) console.error(`\n${ex.hint}`);
-        console.error('');
-        process.exit(2);
-    } finally {
-        await client.end();
-    }
-}
-
-async function ensurePompTables() {
-    await runQuery(`
-    SET client_min_messages TO WARNING;
-    CREATE SCHEMA IF NOT EXISTS pomp;
-    CREATE TABLE IF NOT EXISTS pomp.versions
-    (
-        version bigint, 
-        created_at timestamp,
-        CONSTRAINT _pomp_version_pk PRIMARY KEY (version)
-    ) WITH (OIDS = FALSE);
-    `);
-}
-
-async function listRemoteMigrations() {
-    await ensurePompTables();
-    const result = await runQuery('select version from pomp.versions order by version');
-    return result.map(r => Number(r.version));
-}
-
 async function listLocalMigrations() {
     let files = [];
     const versions = [];
@@ -78,92 +65,48 @@ async function listLocalMigrations() {
         const name = basename(file, '.sql');
         const version = name.match(/^[0-9]+/);
         if (!version) continue;
-        versions.push([Number(version[0]), resolve(WD, file)]);
-    }
-    versions.sort((a, b) => a[0] - b[0]);
-    for (let i=1; i<versions.length; ++i) {
-        if (versions[i][0] === versions[i - 1][0]) {
-            console.error(`Error - These migrations have the same version number:`);
-            console.error(`${versions[i - 1][1]}`);
-            console.error(`${versions[i][1]}`);
-            process.exit(1);
-        }
+        versions.push({
+            version: Number(version[0]),
+            name: resolve(WD, file)
+        });
     }
     return versions;
 }
 
-async function pendingMigrations() {
-    const local = await listLocalMigrations();
-    const remote = await listRemoteMigrations();
-    let j = 0;
-    let pending = [];
-    for (let i=0; i<local.length;) {
-        if (local[i][0] === remote[j]) {
-            i += 1;
-            j += 1;
-            continue;
-        } else if (local[i][0] > remote[j]) {
-            console.error(`Warning - remote migration ${remote[j]} not found locally`);
-            j += 1;
-            continue;
-        } else {
-            pending.push(local[i]);
-            i += 1;
-        }
-    }
-    return pending;
-}
-
-async function runMigration(number, fileName) {
-    const fileData = await readFile(fileName, 'utf-8');
-    const query = `DO LANGUAGE 'plpgsql' $$BEGIN
-${fileData.trim().replace(/;$/, '')};
-END$$
-    `;
-    await runQuery(query);
-    await runQuery(`INSERT INTO pomp.versions (version, created_at) VALUES(${Number(number)}, NOW()) ON CONFLICT (version) DO NOTHING`);
-}
-
 async function runOperation(args) {
-    const pending = await pendingMigrations();
+    const pending = await pomp.pendingMigrations();
     for (const migration of pending) {
-        console.log(`Running migration file ${migration[1]}`);
-        await runMigration(migration[0], migration[1]);
+        console.log(`Running migration file ${migration.name}`);
+        const file = await readFile(migration.name, 'utf-8');
+        await pomp.runMigration(migration.version, file);
     }
     console.log(`All local migrations exist on remote`);
 }
 
-async function versionOperation() {
-    const localVersion = (await listLocalMigrations()).pop();
-    const remoteVersion = (await listRemoteMigrations()).pop();
-    if (localVersion && localVersion[0] === remoteVersion) {
-        console.log(`Latest local and remote version is ${localVersion[0]}`);
-        return;
-    }
-    if (localVersion) {
-        console.log(`Latest local version is ${localVersion[0]}`);
-    } else {
-        console.log(`No local version files found`);
-    }
-    if (remoteVersion) {
-        console.log(`Latest remote version is ${remoteVersion}`);
-    } else {
-        console.log(`No remote version found`);
+async function skipOperation(args) {
+    const count = Number(args ?? 1);
+    const pending = await pomp.pendingMigrations();
+    for (let i=0; i<count; ++i) {
+        if (!pending[i]) break;
+        await pomp.skipMigration(pending[i].version);
     }
 }
 
-async function skipOperation(args) {
-    const count = Number(args[0] ?? 1);
-    const pending = await pendingMigrations();
-    if (pending.length < count) {
-        console.error(`Error - not enough pending migrations left to skip, max ${pending.length}, requested ${count}`);
-        process.exit(1);
+async function versionOperation(args) {
+    const versions = await pomp.latestVersions();
+    if (versions.localVersion && versions.localVersion === versions.remoteVersion) {
+        console.log(`Latest version on local and remote are ${versions.localVersion}`);
+        return;
     }
-
-    for (let i=0; i<count; ++i) {
-        const version = (pending.shift())[0];
-        console.log(`Skipping migration ${version}`);
-        await runQuery(`insert into pomp.versions (version,created_at) values (${Number(version)},NOW()) on conflict do nothing`)
+    if (versions.localVersion) {
+        console.log(`Latest local version is ${versions.localVersion}`);
+    } else {
+        console.log(`There are no local migration files`);
+    }
+    if (versions.remoteVersion) {
+        console.log(`Latest remote version is ${versions.remoteVersion}`);
+    } else {
+        console.log(`There are no remote migrations`);
     }
 }
 
