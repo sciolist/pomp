@@ -1,6 +1,15 @@
 
+/**
+ * @typedef {Object} PompOptions
+ * @property {(text: string) => Promise<any[]>} runSqlQuery - Execute an SQL query as text, return any results as an array of rows
+ * @property {() => Promise<string>} listLocalMigrations - Return a list of local migration file names
+ */
 
+/** Portable One-Way Migrations for Postgres */
 export class Pomp {
+    /**
+     * @param {PompOptions} options
+     */
     constructor(options) {
         if (!options) throw new Error('Missing required argument "options"');
         if (!options.listLocalMigrations) {
@@ -12,6 +21,11 @@ export class Pomp {
         this.options = options;
     }
 
+    /**
+     * List all local migrations.
+     * 
+     * @returns {Promise<Array<{ version: number, name: string }>>} List of migrations with their parsed version number.
+     */
     async listLocalMigrations() {
         const versions = await this.options.listLocalMigrations();
         const results = [];
@@ -30,6 +44,13 @@ export class Pomp {
         return results;
     }
 
+    /**
+     * Run a single migration and mark it as completed.
+     * 
+     * @param {number} version - Migration version number
+     * @param {string} queryText - Migration SQL body
+     * @returns {Promise}
+     */
     async runMigration(version, queryText) {
         const query = `DO LANGUAGE 'plpgsql' $$BEGIN
 ${queryText.trim().replace(/;$/, '') || 'perform 1'};
@@ -38,6 +59,11 @@ END$$`;
         await this.options.runSqlQuery(`INSERT INTO pomp.versions (version, created_at) VALUES(${Number(version)}, NOW()) ON CONFLICT (version) DO NOTHING`);
     }
 
+    /**
+     * Run all pending migrations.
+     * 
+     * @returns {Promise}
+     */
     async runMigrations(readFile) {
         const pending = await this.pendingMigrations();
         for (const p of pending) {
@@ -46,6 +72,11 @@ END$$`;
         }
     }
     
+    /**
+     * Find the latest local and remote version numbers.
+     * 
+     * @returns {Promise<{ localVersion: number, remoteVersion: number }>}
+     */
     async latestVersions() {
         const localVersion = (await this.listLocalMigrations()).pop();
         const remoteVersion = (await this.listRemoteMigrations()).pop();
@@ -55,6 +86,11 @@ END$$`;
         };
     }
 
+    /**
+     * Make a list of all local migrations that have not been run yet.
+     * 
+     * @returns {Promise<Array<{ version: number, name: string }>>}
+     */
     async pendingMigrations() {
         const local = await this.listLocalMigrations();
         const remote = await this.listRemoteMigrations();
@@ -76,10 +112,21 @@ END$$`;
         return pending;
     }
 
+    /**
+     * Skip a single migration version, marking it as complete without running it.
+     * 
+     * @param {number} version - The migration version number to skip
+     * @returns {Promise}
+     */
     async skipMigration(version) {
         await this.options.runSqlQuery(`insert into pomp.versions (version,created_at) values (${Number(version)},NOW()) on conflict do nothing`)
     }
 
+    /**
+     * Ensure the table structure for Pomp exists in the database.
+     * 
+     * @returns {Promise}
+     */
     async createTables() {
         await this.options.runSqlQuery(`CREATE SCHEMA IF NOT EXISTS pomp;`);
         await this.options.runSqlQuery(`CREATE TABLE IF NOT EXISTS pomp.versions
@@ -91,6 +138,11 @@ END$$`;
         `);
     }
 
+    /**
+     * List all migration versions that exist in the database
+     * 
+     * @returns {Promise<Array<{ version: number }>>}
+     */
     async listRemoteMigrations() {
         await this.createTables();
         const result = await this.options.runSqlQuery('select version from pomp.versions order by version');
