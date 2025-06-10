@@ -62,6 +62,7 @@ END$$`;
     /**
      * Run all pending migrations.
      * 
+     * @param {(name: string) => Promise<string>} readFile - Takes a migration name and returns the SQL body of that migration
      * @returns {Promise}
      */
     async runMigrations(readFile) {
