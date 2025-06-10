@@ -45,9 +45,13 @@ const conn = postgres('postgres://localhost');
 
 const pomp = new Pomp({
     // runSqlQuery should return an array of result rows
-    async runSqlQuery(text) { return await conn.unsafe(text); }
+    async runSqlQuery(text) {
+        return await conn.unsafe(text);
+    }
     // listLocalMigrations returns an array of each migration that can be executed.
-    async listLocalMigrations() { return await readdir('migrations'); }
+    async listLocalMigrations() {
+        return await readdir('migrations');
+    }
 });
 ```
 
@@ -57,7 +61,9 @@ With that created you can run the various operations on it:
 // run all pending local migrations, the supplied function will be called
 // with the 'name' supplied in listLocalMigrations so that the contents can
 // be retrieved.
-await pomp.runMigrations(async name => await readFile(`migrations/${name}`, 'utf-8'));
+await pomp.runMigrations(async name => (
+    await readFile(`migrations/${name}`, 'utf-8')
+));
 
 // get a list of the migrations that need to run
 await pomp.pendingMigrations();
