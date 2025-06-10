@@ -1,7 +1,7 @@
 /**
  * @typedef {Object} PompOptions
  * @property {(text: string) => Promise<any[]>} runSqlQuery - Execute an SQL query as text, return any results as an array of rows
- * @property {() => Promise<string>} listLocalMigrations - Return a list of local migration file names
+ * @property {() => Promise<string[]>} listLocalMigrations - Return a list of local migration file names
  */
 /** Portable One-Way Migrations for Postgres */
 export class Pomp {
@@ -82,5 +82,5 @@ export type PompOptions = {
     /**
      * - Return a list of local migration file names
      */
-    listLocalMigrations: () => Promise<string>;
+    listLocalMigrations: () => Promise<string[]>;
 };
