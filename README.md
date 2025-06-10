@@ -48,7 +48,8 @@ const pomp = new Pomp({
     async runSqlQuery(text) {
         return await conn.unsafe(text);
     }
-    // listLocalMigrations returns an array of each migration that can be executed.
+    // listLocalMigrations returns an array of
+    // each migration that can be applied.
     async listLocalMigrations() {
         return await readdir('migrations');
     }
@@ -58,9 +59,8 @@ const pomp = new Pomp({
 With that created you can run the various operations on it:
 
 ```js
-// run all pending local migrations, the supplied function will be called
-// with the 'name' supplied in listLocalMigrations so that the contents can
-// be retrieved.
+// run all pending local migrations, the supplied function is
+// called with the 'name' supplied to listLocalMigrations
 await pomp.runMigrations(async name => (
     await readFile(`migrations/${name}`, 'utf-8')
 ));
@@ -68,7 +68,8 @@ await pomp.runMigrations(async name => (
 // get a list of the migrations that need to run
 await pomp.pendingMigrations();
 
-// run a single migration with its contents, and mark it as completed
+// run a single migration with its contents,
+// and mark it as completed
 await pomp.runMigrations(3, 'create table my_new_table (id serial);');
 
 // mark a migration version as having completed
@@ -83,4 +84,3 @@ await pomp.listLocalMigrations();
 // create an array of migrations from the database
 await pomp.listRemoteMigrations(); 
 ```
-
