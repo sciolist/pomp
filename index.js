@@ -1,13 +1,4 @@
-async function runSqlQuery(text) {
-    const pg = await import('postgres');
-    const client = pg.default(process.env.POSTGRES_URL);
-    try {
-        const result = await client.unsafe(text);
-        return result;
-    } finally {
-        await client.end();
-    }
-}
+
 
 export class Pomp {
     constructor(options) {
@@ -16,31 +7,32 @@ export class Pomp {
             throw new Error('Missing option "listLocalMigrations"');
         }
         if (!options.runSqlQuery) {
-            options.runSqlQuery = runSqlQuery;
+            throw new Error('Missing option "runSqlQuery"');
         }
         this.options = options;
     }
 
     async listLocalMigrations() {
         const versions = await this.options.listLocalMigrations();
-        versions.sort((a, b) => a.version - b.version);
-        let duplicates = [];
-        for (let i = 1; i < versions.length; ++i) {
-            if (versions[i].version === versions[i - 1].version) {
-                duplicates.push(versions[i].version);
+        const results = [];
+        const seen = new Set();
+        for (const pathName of versions) {
+            const name = pathName.split(/\//).at(-1);
+            const version = name.match(/^[0-9]+/);
+            if (!version) continue;
+            if (seen.has(Number(version))) {
+                throw new Error(`Duplicate local migration versions found - ${versions[i].version}`);
             }
+            seen.add(Number(version));
+            results.push({ version: Number(version), name: pathName });
         }
-        if (duplicates.length) {
-            const err = new Error(`Duplicate local migration versions found`);
-            err.duplicates = err;
-            throw err;
-        }
-        return versions;
+        results.sort((a, b) => a.version - b.version);
+        return results;
     }
 
     async runMigration(version, queryText) {
         const query = `DO LANGUAGE 'plpgsql' $$BEGIN
-${queryText.trim().replace(/;$/, '')};
+${queryText.trim().replace(/;$/, '') || 'perform 1'};
 END$$`;
         await this.options.runSqlQuery(query);
         await this.options.runSqlQuery(`INSERT INTO pomp.versions (version, created_at) VALUES(${Number(version)}, NOW()) ON CONFLICT (version) DO NOTHING`);
@@ -85,7 +77,7 @@ END$$`;
     }
 
     async skipMigration(version) {
-        await runSqlQuery(`insert into pomp.versions (version,created_at) values (${Number(version)},NOW()) on conflict do nothing`)
+        await this.options.runSqlQuery(`insert into pomp.versions (version,created_at) values (${Number(version)},NOW()) on conflict do nothing`)
     }
 
     async createTables() {
