@@ -35,7 +35,7 @@ export class Pomp {
             const version = name.match(/^[0-9]+/);
             if (!version) continue;
             if (seen.has(Number(version))) {
-                throw new Error(`Duplicate local migration versions found - ${versions[i].version}`);
+                throw new Error(`Duplicate local migration versions found - ${version}`);
             }
             seen.add(Number(version));
             results.push({ version: Number(version), name: pathName });
