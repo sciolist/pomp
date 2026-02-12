@@ -37,7 +37,7 @@ async function newOperation(args) {
   await mkdir(WD, { recursive: true });
   let date = new Date();
   let fmt = String(date.getFullYear())
-    + String(date.getMonth()).padStart(2, '0')
+    + String(1 + date.getMonth()).padStart(2, '0')
     + String(date.getDate()).padStart(2, '0')
     + String(date.getHours()).padStart(2, '0')
     + String(date.getMinutes()).padStart(2, '0')
