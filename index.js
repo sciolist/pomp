@@ -59,6 +59,15 @@ END$$`;
         await this.options.runSqlQuery(`INSERT INTO pomp.versions (version, created_at) VALUES(${Number(version)}, NOW()) ON CONFLICT (version) DO NOTHING`);
     }
 
+    async runObject(name, hash, queryText) {
+        const query = `DO LANGUAGE 'plpgsql' $$BEGIN
+${queryText.trim().replace(/;$/, '') || 'perform 1'};
+END$$`;
+        await this.options.runSqlQuery(query);
+        await this.options.runSqlQuery(`INSERT INTO pomp.objects (name, hash, created_at) VALUES(${Number(name)}, ${hash}, NOW()) ON CONFLICT (name) DO UPDATE SET hash = EXCLUDED.hash, created_at = EXCLUDED.created_at`);
+    }
+
+
     /**
      * Run all pending migrations.
      * 
@@ -130,6 +139,13 @@ END$$`;
      */
     async createTables() {
         await this.options.runSqlQuery(`CREATE SCHEMA IF NOT EXISTS pomp;`);
+        await this.options.runSqlQuery(`CREATE TABLE IF NOT EXISTS pomp.objects
+        (
+            name text PRIMARY KEY, 
+            hash text NOT NULL, 
+            created_at timestamp default NOW() NOT NULL
+        ) WITH (OIDS = FALSE);
+         `);
         await this.options.runSqlQuery(`CREATE TABLE IF NOT EXISTS pomp.versions
         (
             version bigint, 
@@ -148,5 +164,43 @@ END$$`;
         await this.createTables();
         const result = await this.options.runSqlQuery('select version from pomp.versions order by version');
         return result.map(r => ({ version: Number(r.version) }));
+    }
+
+
+    async pendingObjects() {
+        const local = new Map((await this.listLocalObjects()).map(o => [o.name, o]));
+        const remote = new Map((await this.listRemoteObjects()).map(o => [o.name, o]));
+        let pending = [];
+        for (const [name, localHash] of local) {
+            const remoteObj = remote.get(name);
+            remote.delete(name);
+            if (!remoteObj || remoteObj.hash !== localHash.hash) {
+                pending.push({ name, hash: localHash.hash });
+            }
+        }
+        for (const [name, _remoteHash] of remote) {
+            if (!local.has(name)) {
+                pending.push({ name, hash: null });
+            }
+        }
+        return pending;
+    }
+
+    async updateObjects(readFile) {
+        const pending = await this.pendingMigrations();
+        for (const p of pending) {
+            const data = await readFile(p.name);
+            await this.runMigration(p.version, data);
+        }
+    }
+
+    async listRemoteObjects() {
+        await this.createTables();
+        const result = await this.options.runSqlQuery('select name, hash from pomp.objects');
+        return result.map(r => ({ name: r.name, hash: r.hash }));
+    }
+
+    async listLocalObjects() {
+        return await this.options.listLocalObjects();
     }
 }

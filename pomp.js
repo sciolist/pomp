@@ -3,11 +3,13 @@
 import { spawnSync } from 'node:child_process'
 import { readdir, mkdir, readFile } from 'node:fs/promises';
 import path, { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { Pomp } from './index.js';
 import pg from 'postgres';
 
 const EDITOR = process.env.EDITOR || 'vi';
 const WD = process.env.POMP_WD || './migrations';
+const OBJWD = path.resolve(WD, 'objects');
 
 async function runSqlQuery(text) {
     const client = pg(process.env.POSTGRES_URL, {
@@ -30,7 +32,8 @@ async function runSqlQuery(text) {
 
 const pomp = new Pomp({
     runSqlQuery,
-    listLocalMigrations
+    listLocalMigrations,
+    listLocalObjects,
 });
 
 async function newOperation(args) {
@@ -62,6 +65,25 @@ async function listLocalMigrations() {
     }
 }
 
+async function listLocalObjects() {
+    try {
+        const files = await readdir(OBJWD);
+        // sha1 hash every file
+        for (let i=0; i<files.length; ++i) {
+            const hash = createHash('sha1');
+            const content = await readFile(path.resolve(OBJWD, files[i]));
+            hash.update(content);
+            files[i] = { name: files[i], hash: hash.digest('hex') };
+        }
+        return files;
+    } catch(ex) {
+        if (ex.code === 'ENOENT') {
+            return [];
+        }
+        throw ex;
+    }
+}
+
 async function runOperation(args) {
     const pending = await pomp.pendingMigrations();
     for (const migration of pending) {
@@ -72,6 +94,16 @@ async function runOperation(args) {
     console.log(`All local migrations exist on remote`);
 }
 
+async function runObjectsOperation(args) {
+    const pending = await pomp.pendingObjects();
+    for (const obj of pending) {
+        console.log(`Running object file ${obj}`);
+        const file = await readFile(path.resolve(OBJWD, obj), 'utf-8');
+        await pomp.runMigration(obj.version, file);
+    }
+    console.log(`All local objects exist on remote`);
+}
+
 async function pendingOperation(args) {
     const versions = await pomp.pendingMigrations();
     if (!versions.length) {
@@ -80,6 +112,19 @@ async function pendingOperation(args) {
     }
     for (const version of versions) {
         console.log(`${version.name}`);
+    }
+    console.log('');
+    process.exit(1);
+}
+
+async function pendingObjectsOperation(args) {
+    const objects = await pomp.pendingObjects();
+    if (!objects.length) {
+        console.log('All objects are up to date');
+        return;
+    }
+    for (const obj of objects) {
+        console.log(obj);
     }
     console.log('');
     process.exit(1);
@@ -121,16 +166,18 @@ async function helpOperation(isHelpCommand, args) {
     output(`Usage: pomp <command> [<args>]
 
 COMMANDS
-  new [name]     Create a new migration with supplied name
-  run            Apply pending migrations
-  version        Prints current database and local version
-  pending        Prints the local migrations that do not exist in the databse
-  skip [..v]     Skip specific migration versions
-  help           Show this version text
+  new [name]       Create a new migration with supplied name
+  run              Apply pending migrations
+  version          Prints current database and local version
+  pending          Prints the local migrations that do not exist in the databse
+  skip [..v]       Skip specific migration versions
+  help             Show this version text
+  pending-objects  Print the local objects that do not exist in the database
+  run-objects      Apply pending object changes
 
 ENVIRONMENT
-  POMP_WD        Folder path with sql migrations
-  POSTGRES_URL   Database connection string, also supports default psql environment variables
+  POMP_WD          Folder path with sql migrations
+  POSTGRES_URL     Database connection string, also supports default psql environment variables
 `);
     process.exit(isHelpCommand ? 0 : 1);
 }
@@ -143,6 +190,9 @@ switch (operation) {
     case 'run':
         await runOperation(process.argv.slice(3));
         break;
+    case 'run-objects':
+        await runObjectsOperation(process.argv.slice(3));
+        break;
     case 'skip':
         await skipOperation(process.argv.slice(3));
         break;
@@ -151,6 +201,9 @@ switch (operation) {
         break;
     case 'pending':
         await pendingOperation(process.argv.slice(3));
+        break;
+    case 'pending-objects':
+        await pendingObjectsOperation(process.argv.slice(3));
         break;
     default:
         await helpOperation(operation === 'help', process.argv.slice(3));
